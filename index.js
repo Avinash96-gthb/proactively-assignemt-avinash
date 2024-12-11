@@ -183,9 +183,8 @@ function verifyToken(requiredRole) {
  * @swagger
  * /user-sign-up:
  *   post:
- *   
  *     summary: User Sign-Up
- *     description: Handles both stages of user sign-up. The first request sends an OTP to the user's email, and the second verifies the OTP to complete registration.
+ *     description: Handles both stages of user sign-up. The first request sends an OTP to the user's email, and the second verifies the OTP to complete registration. To start, please enter your email, first name, last name, and password. An OTP will be sent to your email. Then, submit the OTP to complete the sign-up process.
  *     requestBody:
  *       required: true
  *       content:
@@ -196,19 +195,20 @@ function verifyToken(requiredRole) {
  *               email:
  *                 type: string
  *                 example: "user@example.com"
+ *                 description: "Provide only in the first request to receive OTP."
  *               first_name:
  *                 type: string
  *                 example: "John"
+ *                 description: "Provide only in the first request to receive OTP."
  *               last_name:
  *                 type: string
  *                 example: "Doe"
+ *                 description: "Provide only in the first request to receive OTP."
  *               password:
  *                 type: string
  *                 example: "password123"
- *               otp:
- *                 type: string
- *                 example: "123456"
- *                 description: "Provide this field only in the second request to complete registration."
+ *                 description: "Provide only in the first request to receive OTP."
+ *           
  *     responses:
  *       200:
  *         description: OTP sent to the user's email (on first request).
@@ -219,7 +219,6 @@ function verifyToken(requiredRole) {
  *       500:
  *         description: Server error.
  */
-
 app.post('/user-sign-up', async (req, res) => {
     try {
         const { email, first_name, last_name, password, otp } = req.body;
@@ -239,6 +238,7 @@ app.post('/user-sign-up', async (req, res) => {
             otpStorage.set(email, {
                 otp: generatedOTP,
                 createdAt: Date.now(),
+                email,
                 first_name,
                 last_name,
                 password,
@@ -246,30 +246,26 @@ app.post('/user-sign-up', async (req, res) => {
 
             await sendOTPEmail(email, generatedOTP);
 
-            return res.status(200).json({ message: 'OTP sent to email' });
+            return res.status(200).json({ 
+                message: 'OTP sent to email. Please use the OTP to finish sign-up.',
+                otp_format: { 
+                    otp: "6 digit otp enclosed in brackets"
+                }
+            });
         }
 
-        const storedOtpData = otpStorage.get(email);
+        const storedOtpData = Array.from(otpStorage.values()).find(data => data.otp === otp);
         if (!storedOtpData) {
-            return res.status(400).json({ message: 'No OTP found. Request a new one.' });
-        }
-
-        if (Date.now() - storedOtpData.createdAt > 10 * 60 * 1000) {
-            otpStorage.delete(email);
-            return res.status(400).json({ message: 'OTP expired. Request a new one.' });
-        }
-
-        if (storedOtpData.otp !== otp) {
-            return res.status(400).json({ message: 'Invalid OTP' });
+            return res.status(400).json({ message: 'Invalid or expired OTP' });
         }
 
         const [result] = await connection.promise().query(
             `INSERT INTO user_login (first_name, last_name, email, user_password, is_logged_in) 
              VALUES (?, ?, ?, MD5(?), ?)`,
-            [storedOtpData.first_name, storedOtpData.last_name, email, storedOtpData.password, 0]
+            [storedOtpData.first_name, storedOtpData.last_name, storedOtpData.email, storedOtpData.password, 0]
         );
 
-        otpStorage.delete(email);
+        otpStorage.delete(storedOtpData.email);
 
         res.status(201).json({ message: 'User registered successfully', userId: result.insertId });
     } catch (error) {
@@ -282,9 +278,8 @@ app.post('/user-sign-up', async (req, res) => {
  * @swagger
  * /speaker-sign-up:
  *   post:
- *   
- *     summary: User Sign-Up
- *     description: Handles both stages of user sign-up. The first request sends an OTP to the user's email, and the second verifies the OTP to complete registration.
+ *     summary: Speaker Sign-Up
+ *     description: Handles both stages of speaker sign-up. The first request sends an OTP to the speaker's email, and the second verifies the OTP to complete registration. To start, please enter your email, first name, last name, and password. An OTP will be sent to your email. Then, submit the OTP to complete the sign-up process, only enter otp for the second stage.
  *     requestBody:
  *       required: true
  *       content:
@@ -294,25 +289,25 @@ app.post('/user-sign-up', async (req, res) => {
  *             properties:
  *               email:
  *                 type: string
- *                 example: "user@example.com"
+ *                 example: "speaker@example.com"
+ *                 description: "Provide only in the first request to receive OTP."
  *               first_name:
  *                 type: string
- *                 example: "John"
+ *                 example: "Jane"
+ *                 description: "Provide only in the first request to receive OTP."
  *               last_name:
  *                 type: string
  *                 example: "Doe"
+ *                 description: "Provide only in the first request to receive OTP."
  *               password:
  *                 type: string
  *                 example: "password123"
- *               otp:
- *                 type: string
- *                 example: "123456"
- *                 description: "Provide this field only in the second request to complete registration."
+ *                 description: "Provide only in the first request to receive OTP."             
  *     responses:
  *       200:
- *         description: OTP sent to the user's email (on first request).
+ *         description: OTP sent to the speaker's email (on first request).
  *       201:
- *         description: User registered successfully (on second request with OTP).
+ *         description: Speaker registered successfully (on second request with OTP).
  *       400:
  *         description: Invalid input, OTP expired, or mismatch.
  *       500:
@@ -322,71 +317,59 @@ app.post('/speaker-sign-up', async (req, res) => {
     try {
         const { email, first_name, last_name, password, otp } = req.body;
 
-        // If no OTP is provided, it means we're in the OTP request phase
         if (!otp) {
-            // Check if email already exists
             const [existingUser] = await connection.promise().query(
-                'SELECT * FROM speaker_login WHERE email = ?', 
+                'SELECT * FROM speaker_login WHERE email = ?',
                 [email]
             );
 
             if (existingUser.length > 0) {
-                return res.status(400).json({ 
-                    message: 'Email already registered' 
-                });
+                return res.status(400).json({ message: 'Email already registered' });
             }
 
-            // Generate OTP
             const generatedOTP = generateOTP();
 
-            // Store OTP with timestamp and user details
             otpStorage.set(email, {
                 otp: generatedOTP,
                 createdAt: Date.now(),
+                email,
                 first_name,
                 last_name,
-                password
+                password,
             });
 
-            // Send OTP via email
             await sendOTPEmail(email, generatedOTP);
 
-            return res.status(200).json({ message: 'OTP sent to email' });
+            return res.status(200).json({ 
+                message: 'OTP sent to email. Please use the OTP to finish sign-up.',
+                otp_format: { 
+                    otp: "6 digit otp enclosed in brackets"
+                }
+            });
+            
+            
         }
 
-        // OTP verification phase
-        const storedOtpData = otpStorage.get(email);
+        const storedOtpData = Array.from(otpStorage.values()).find(data => data.otp === otp);
         if (!storedOtpData) {
-            return res.status(400).json({ message: 'No OTP found. Request a new one.' });
-        }
-
-        if (Date.now() - storedOtpData.createdAt > 10 * 60 * 1000) {
-            otpStorage.delete(email);
-            return res.status(400).json({ message: 'OTP expired. Request a new one.' });
-        }
-
-        if (storedOtpData.otp !== otp) {
-            return res.status(400).json({ message: 'Invalid OTP' });
+            return res.status(400).json({ message: 'Invalid or expired OTP' });
         }
 
         const [result] = await connection.promise().query(
             `INSERT INTO speaker_login (first_name, last_name, email, user_password, is_logged_in) 
              VALUES (?, ?, ?, MD5(?), ?)`,
-            [storedOtpData.first_name, storedOtpData.last_name, email, storedOtpData.password, 0]
+            [storedOtpData.first_name, storedOtpData.last_name, storedOtpData.email, storedOtpData.password, 0]
         );
 
-        otpStorage.delete(email);
+        otpStorage.delete(storedOtpData.email);
 
-        res.status(201).json({ message: 'User registered successfully', userId: result.insertId });
-
+        res.status(201).json({ message: 'Speaker registered successfully', userId: result.insertId });
     } catch (error) {
-        console.error('Sign Up Error:', error);
-        res.status(500).json({ 
-            message: 'Error during sign up', 
-            error: error.message 
-        });
+        console.error('Sign-Up Error:', error);
+        res.status(500).json({ message: 'Error during sign up', error: error.message });
     }
 });
+
 
 /**
  * @swagger
