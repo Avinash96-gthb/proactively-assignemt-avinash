@@ -23,7 +23,7 @@ services:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE=proactively_backend
+      MYSQL_DATABASE: proactively_backend
     volumes:
       - db_data:/var/lib/mysql
       - ./query.sql:/docker-entrypoint-initdb.d/query.sql
