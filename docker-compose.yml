@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: express_backend
+    ports:
+      - "3005:3005"
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=root
+      - DB_NAME=proactively_backend
+    depends_on:
+      - db
+    volumes:
+      - .:/usr/src/app
+
+  db:
+    image: mysql:8
+    container_name: mysql_db
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE=proactively_backend
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./query.sql:/docker-entrypoint-initdb.d/query.sql
+
+volumes:
+  db_data:

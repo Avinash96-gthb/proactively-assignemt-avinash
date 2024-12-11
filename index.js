@@ -9,7 +9,7 @@ const swaggerDocs = require('./swagger'); // Swagger configuration file
 const { connection } = require('./db'); // Ensure you have your database connection here
 
 const app = express();
-const PORT = 3005;
+const PORT = process.env.PORT ||3005;
 
 app.use(express.json());
 app.use(cors());
